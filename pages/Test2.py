@@ -45,7 +45,7 @@ def fetch_products_from_supabase():
         return None
 
 # Streamlit App
-st.title("Farm Product Analysis and Forecasting")
+st.title("Farm Demand Analysis and Forecasting")
 
 # Fetch data from Supabase
 df = fetch_data_from_supabase()
@@ -144,7 +144,7 @@ if df is not None and products_df is not None:
         forecast_df = pd.DataFrame({'Forecast': forecast.predicted_mean.clip(lower=0)}, index=exog_forecast.index)
 
         # Add a combined bar chart to display both historical and forecasted values
-        st.subheader("Visual Forecast: Historical and Predicted Egg Production")
+        st.subheader("Visual Forecast: Historical and Predicted Egg Demand")
 
         # Combine historical and forecasted data for the bar chart
         historical_df = pd.DataFrame({'Quantity': selected_df['QTY (KG)']})
@@ -165,7 +165,7 @@ if df is not None and products_df is not None:
                 alpha=0.7
             )
 
-        plt.title(f"Historical and Forecasted Egg Production for {selected_product_label}")
+        plt.title(f"Historical and Forecasted Egg Demand for {selected_product_label}")
         plt.xlabel("Month")
         plt.ylabel("Quantity (KG)")
         plt.xticks(rotation=45)
@@ -174,7 +174,7 @@ if df is not None and products_df is not None:
         st.pyplot(plt)
 
         # Add a summary table for monthly forecast with pagination
-        st.subheader("Monthly Egg Production Table")
+        st.subheader("Monthly Egg Demand Table")
 
         # Number of rows per page
         rows_per_page = 12  # Show 12 months at a time
