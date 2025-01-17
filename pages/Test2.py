@@ -120,7 +120,6 @@ if df is not None and products_df is not None:
         selected_product_label = st.selectbox("Select a product:", unique_products['dropdown_label'])
         selected_product_id = int(selected_product_label.split("(ID: ")[-1].strip(")"))
     else:
-        # Fallback to product_id only
         unique_products = df['product_id'].unique()
         selected_product_id = st.selectbox("Select a product ID:", unique_products)
 
@@ -155,14 +154,48 @@ if df is not None and products_df is not None:
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         st.pyplot(plt)
 
-        # Add user-friendly textual summary
-        total_forecast = forecast_df['Forecast'].sum()
-        max_forecast = forecast_df['Forecast'].max()
-        min_forecast = forecast_df['Forecast'].min()
-        st.write(f"### Forecast Summary:")
-        st.write(f"- **Total Forecasted Quantity**: {total_forecast:.2f} KG")
-        st.write(f"- **Peak Month**: {forecast_df['Forecast'].idxmax().strftime('%B %Y')} with **{max_forecast:.2f} KG**")
-        st.write(f"- **Lowest Month**: {forecast_df['Forecast'].idxmin().strftime('%B %Y')} with **{min_forecast:.2f} KG**")
+        # # Add user-friendly textual summary
+        # total_forecast = forecast_df['Forecast'].sum()
+        # max_forecast = forecast_df['Forecast'].max()
+        # min_forecast = forecast_df['Forecast'].min()
+        # st.write(f"### Forecast Summary:")
+        # st.write(f"- **Total Forecasted Quantity**: {total_forecast:.2f} KG")
+        # st.write(f"- **Peak Month**: {forecast_df['Forecast'].idxmax().strftime('%B %Y')} with **{max_forecast:.2f} KG**")
+        # st.write(f"- **Lowest Month**: {forecast_df['Forecast'].idxmin().strftime('%B %Y')} with **{min_forecast:.2f} KG**")
+
+            # Add a summary table for monthly forecast with pagination
+        st.subheader("Monthly Egg Production Table")
+
+        # Number of rows per page
+        rows_per_page = 12  # Show 12 months at a time
+        total_rows = len(forecast_df)
+        num_pages = (total_rows // rows_per_page) + (1 if total_rows % rows_per_page != 0 else 0)
+
+        # Dropdown to select the page
+        selected_page = st.selectbox("Select Page:", options=list(range(1, num_pages + 1)))
+
+        # Slice the table based on the selected page
+        start_idx = (selected_page - 1) * rows_per_page
+        end_idx = start_idx + rows_per_page
+        paginated_table = forecast_df[start_idx:end_idx].reset_index()
+        paginated_table.columns = ['Month', 'Forecasted Quantity (KG)']
+        paginated_table['Month'] = paginated_table['Month'].dt.strftime('%B %Y')
+
+        # Display the paginated table
+        st.table(paginated_table)
+
+
+        # Add download button for forecasted values
+        forecast_csv = forecast_df.reset_index()
+        forecast_csv.columns = ['Month', 'Forecasted Quantity (KG)']
+        forecast_csv['Month'] = forecast_csv['Month'].dt.strftime('%B %Y')
+        forecast_csv_data = forecast_csv.to_csv(index=False)
+        st.download_button(
+            label="Download Forecasted Values as CSV",
+            data=forecast_csv_data,
+            file_name='forecasted_values.csv',
+            mime='text/csv',
+        )
 
     except Exception as e:
         st.error(f"SARIMAX model failed: {e}")
