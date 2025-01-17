@@ -4,3 +4,4 @@ statsmodels
 pandas
 hijri-converter
 numpy
+openpyxl
