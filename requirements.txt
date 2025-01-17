@@ -1,2 +1,6 @@
 streamlit
 matplotlib
+statsmodels
+pandas
+hijri-converter
+numpy
