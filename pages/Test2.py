@@ -16,7 +16,7 @@ def init_connection():
 
 supabase = init_connection()
 
-# Fetch the data from the table
+# Fetch the data from the orders table
 @st.cache_data(ttl=600)
 def fetch_data_from_supabase():
     try:
@@ -30,13 +30,33 @@ def fetch_data_from_supabase():
         st.error(f"Error querying Supabase: {e}")
         return None
 
+# Fetch product names from the product table
+@st.cache_data(ttl=600)
+def fetch_products_from_supabase():
+    try:
+        response = supabase.table("product").select("id, display_name").execute()
+        if response.data:
+            return pd.DataFrame(response.data)
+        else:
+            st.error("No product data retrieved from Supabase.")
+            return None
+    except Exception as e:
+        st.error(f"Error querying Supabase for products: {e}")
+        return None
+
 # Streamlit App
 st.title("Farm Product Analysis and Forecasting")
 
-# Fetch data
+# Fetch data from Supabase
 df = fetch_data_from_supabase()
+products_df = fetch_products_from_supabase()
 
-if df is not None:
+if df is not None and products_df is not None:
+    # Merge product names into the orders dataset
+    if "product_id" in df.columns and "id" in products_df.columns and "display_name" in products_df.columns:
+        products_df.rename(columns={"id": "product_id"}, inplace=True)
+        df = df.merge(products_df[['product_id', 'display_name']], on='product_id', how='left')
+
     # Ensure the data is in the correct format
     if "collection_date" in df.columns:
         df['Date'] = pd.to_datetime(df['collection_date'], errors='coerce')
@@ -82,10 +102,6 @@ if df is not None:
     df['Holiday'] = 0
     df.loc[df.index.isin(all_holidays), 'Holiday'] = 1
 
-    # Preview the data
-    st.subheader("Loaded Data Preview:")
-    st.dataframe(df.head())
-
     # Export modified dataset as CSV
     full_csv = df.to_csv(index=True)
     st.download_button(
@@ -95,28 +111,26 @@ if df is not None:
         mime='text/csv',
     )
 
-    # Filter by product ID
-    unique_products = df['product_id'].unique()
-    selected_product = st.selectbox("Select a product ID:", unique_products)
-    selected_df = df[df['product_id'] == selected_product]
+    # Create a dropdown with product names
+    if "display_name" in df.columns:
+        unique_products = df[['product_id', 'display_name']].drop_duplicates()
+        unique_products['dropdown_label'] = unique_products.apply(
+            lambda row: f"{row['display_name']} (ID: {row['product_id']})", axis=1
+        )
+        selected_product_label = st.selectbox("Select a product:", unique_products['dropdown_label'])
+        selected_product_id = int(selected_product_label.split("(ID: ")[-1].strip(")"))
+    else:
+        # Fallback to product_id only
+        unique_products = df['product_id'].unique()
+        selected_product_id = st.selectbox("Select a product ID:", unique_products)
+
+    selected_df = df[df['product_id'] == selected_product_id]
 
     if selected_df.empty:
         st.error("No data found for the selected product.")
         st.stop()
 
     selected_df = selected_df.resample('M').agg({'QTY (KG)': 'sum', 'Holiday': 'max'}).interpolate()
-
-    st.write("Historical Data Summary:")
-    st.dataframe(selected_df.head())
-
-    st.subheader(f"Historical Data for Product ID {selected_product}")
-    plt.figure(figsize=(10, 6))
-    plt.plot(selected_df.index, selected_df['QTY (KG)'], marker='o', linestyle='-')
-    plt.title(f"QTY (KG) Over Time for Product ID {selected_product}")
-    plt.xlabel("Date")
-    plt.ylabel("Quantity (KG)")
-    plt.grid(True)
-    st.pyplot(plt)
 
     forecast_periods = st.slider("Select forecast periods (months):", min_value=1, max_value=60, value=12)
 
@@ -130,18 +144,25 @@ if df is not None:
         forecast = model_fit.get_forecast(steps=forecast_periods, exog=exog_forecast)
         forecast_df = pd.DataFrame({'Forecast': forecast.predicted_mean.clip(lower=0)}, index=exog_forecast.index)
 
-        st.subheader("Forecasted Values:")
-        st.dataframe(forecast_df)
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(selected_df.index, selected_df['QTY (KG)'], label="Historical Data", marker='o')
-        plt.plot(forecast_df.index, forecast_df['Forecast'], label="Forecast", color='orange', linestyle='--')
-        plt.title(f"SARIMAX Forecast for Product ID {selected_product} (with Holidays)")
-        plt.xlabel("Date")
+        # Add a bar chart to display the monthly forecast visually
+        st.subheader("Visual Forecast: Monthly Egg Production")
+        plt.figure(figsize=(12, 6))
+        plt.bar(forecast_df.index.strftime('%Y-%m'), forecast_df['Forecast'], color='orange', alpha=0.7)
+        plt.title(f"Monthly Egg Production Forecast for {selected_product_label}")
+        plt.xlabel("Month")
         plt.ylabel("Quantity (KG)")
-        plt.legend()
-        plt.grid(True)
+        plt.xticks(rotation=45)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
         st.pyplot(plt)
+
+        # Add user-friendly textual summary
+        total_forecast = forecast_df['Forecast'].sum()
+        max_forecast = forecast_df['Forecast'].max()
+        min_forecast = forecast_df['Forecast'].min()
+        st.write(f"### Forecast Summary:")
+        st.write(f"- **Total Forecasted Quantity**: {total_forecast:.2f} KG")
+        st.write(f"- **Peak Month**: {forecast_df['Forecast'].idxmax().strftime('%B %Y')} with **{max_forecast:.2f} KG**")
+        st.write(f"- **Lowest Month**: {forecast_df['Forecast'].idxmin().strftime('%B %Y')} with **{min_forecast:.2f} KG**")
 
     except Exception as e:
         st.error(f"SARIMAX model failed: {e}")
