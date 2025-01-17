@@ -72,11 +72,10 @@ try:
         islamic_holidays = []
         for year in range(max(1900, int(start_year)), min(2100, int(end_year)) + 1):
             try:
-                eid_al_fitr = convert.Hijri(year, 10, 1).to_gregorian()  # 1st day of Shawwal
-                eid_al_adha = convert.Hijri(year, 12, 10).to_gregorian()  # 10th day of Dhu al-Hijjah
+                eid_al_fitr = convert.Hijri(year, 10, 1).to_gregorian()
+                eid_al_adha = convert.Hijri(year, 12, 10).to_gregorian()
                 islamic_holidays.extend([eid_al_fitr, eid_al_adha])
             except (ValueError, OverflowError):
-                # Skip invalid Hijri-to-Gregorian conversions
                 continue
         return islamic_holidays
 
@@ -86,16 +85,20 @@ try:
     gregorian_holidays = calendar.holidays(start=df['Date'].min(), end=df['Date'].max())
     islamic_holidays = add_islamic_holidays(start_year, end_year)
 
-    # Combine holidays and remove duplicates
     all_holidays = pd.to_datetime(
         list(set(gregorian_holidays).union(islamic_holidays)), errors='coerce'
     ).dropna()
     df['Holiday'] = 0
     df.loc[df.index.isin(all_holidays), 'Holiday'] = 1
 
-    # Debug fabricated data
-    st.write("Fabricated Data with Holidays Preview:")
-    st.dataframe(fabricated_df.head())
+    # Export modified dataset as CSV
+    full_csv = df.to_csv(index=True)
+    st.download_button(
+        label="Download Full Dataset as CSV",
+        data=full_csv,
+        file_name='full_modified_dataset.csv',
+        mime='text/csv',
+    )
 
     # Filter by product type
     unique_names = df['JENIS'].unique()
@@ -111,21 +114,14 @@ try:
         st.error("The 'QTY (KG)' column contains only zeros or invalid values. Unable to forecast.")
         st.stop()
 
-    # Ensure the index is a DatetimeIndex
     if not isinstance(selected_df.index, pd.DatetimeIndex):
-        selected_df = selected_df.set_index('Date')  # Set 'Date' column as the index
+        selected_df = selected_df.set_index('Date')
 
-    # Resample to monthly frequency and aggregate
-    st.write("Processing data...")
     selected_df = selected_df.resample('M').agg({'QTY (KG)': 'sum', 'Holiday': 'max'}).interpolate()
 
-    # Debug selected data
     st.write("Historical Data Summary:")
     st.dataframe(selected_df.head())
-    st.write("Summary Statistics for QTY (KG):")
-    st.write(selected_df['QTY (KG)'].describe())
 
-    # Plot historical data
     st.subheader(f"Historical Data for {selected_product.capitalize()}")
     plt.figure(figsize=(10, 6))
     plt.plot(selected_df.index, selected_df['QTY (KG)'], marker='o', linestyle='-')
@@ -135,34 +131,22 @@ try:
     plt.grid(True)
     st.pyplot(plt)
 
-    # SARIMAX Forecasting
     forecast_periods = st.slider("Select forecast periods (months):", min_value=1, max_value=60, value=12)
     st.write("Fitting SARIMAX model with holidays as exogenous variable...")
 
     try:
-        exog = selected_df[['Holiday']]  # Use 'Holiday' as exogenous variable
+        exog = selected_df[['Holiday']]
         model = SARIMAX(selected_df['QTY (KG)'], order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), exog=exog)
         model_fit = model.fit(disp=False)
 
-        # Forecast
-        future_holidays = []
-        future_dates = pd.date_range(start=selected_df.index[-1], periods=forecast_periods + 1, freq='M')[1:]
-        for date in future_dates:
-            future_holidays.append(1 if date in all_holidays else 0)
-
-        exog_forecast = pd.DataFrame({'Holiday': future_holidays}, index=future_dates)
-
+        future_holidays = [1 if date in all_holidays else 0 for date in pd.date_range(selected_df.index[-1], periods=forecast_periods + 1, freq='M')[1:]]
+        exog_forecast = pd.DataFrame({'Holiday': future_holidays}, index=pd.date_range(selected_df.index[-1], periods=forecast_periods + 1, freq='M')[1:])
         forecast = model_fit.get_forecast(steps=forecast_periods, exog=exog_forecast)
-        forecast_df = forecast.predicted_mean
-        forecast_df[forecast_df < 0] = 0  # Clip negative values
+        forecast_df = pd.DataFrame({'Forecast': forecast.predicted_mean.clip(lower=0)}, index=exog_forecast.index)
 
-        forecast_df = pd.DataFrame({'Forecast': forecast_df.values}, index=future_dates)
-
-        # Display Forecast
         st.subheader("Forecasted Values:")
         st.dataframe(forecast_df)
 
-        # Plot Forecast
         plt.figure(figsize=(10, 6))
         plt.plot(selected_df.index, selected_df['QTY (KG)'], label="Historical Data", marker='o')
         plt.plot(forecast_df.index, forecast_df['Forecast'], label="Forecast", color='orange', linestyle='--')
