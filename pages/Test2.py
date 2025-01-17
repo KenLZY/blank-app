@@ -143,27 +143,37 @@ if df is not None and products_df is not None:
         forecast = model_fit.get_forecast(steps=forecast_periods, exog=exog_forecast)
         forecast_df = pd.DataFrame({'Forecast': forecast.predicted_mean.clip(lower=0)}, index=exog_forecast.index)
 
-        # Add a bar chart to display the monthly forecast visually
-        st.subheader("Visual Forecast: Monthly Egg Production")
-        plt.figure(figsize=(12, 6))
-        plt.bar(forecast_df.index.strftime('%Y-%m'), forecast_df['Forecast'], color='orange', alpha=0.7)
-        plt.title(f"Monthly Egg Production Forecast for {selected_product_label}")
+        # Add a combined bar chart to display both historical and forecasted values
+        st.subheader("Visual Forecast: Historical and Predicted Egg Production")
+
+        # Combine historical and forecasted data for the bar chart
+        historical_df = pd.DataFrame({'Quantity': selected_df['QTY (KG)']})
+        historical_df['Type'] = 'Historical'
+        forecast_df['Type'] = 'Forecast'
+        combined_df = pd.concat([historical_df, forecast_df.rename(columns={'Forecast': 'Quantity'})])
+
+        # Plot the combined bar chart
+        plt.figure(figsize=(14, 7))
+        colors = {'Historical': 'blue', 'Forecast': 'orange'}
+        for data_type in combined_df['Type'].unique():
+            data = combined_df[combined_df['Type'] == data_type]
+            plt.bar(
+                data.index.strftime('%Y-%m'),
+                data['Quantity'],
+                label=data_type,
+                color=colors[data_type],
+                alpha=0.7
+            )
+
+        plt.title(f"Historical and Forecasted Egg Production for {selected_product_label}")
         plt.xlabel("Month")
         plt.ylabel("Quantity (KG)")
         plt.xticks(rotation=45)
+        plt.legend()
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         st.pyplot(plt)
 
-        # # Add user-friendly textual summary
-        # total_forecast = forecast_df['Forecast'].sum()
-        # max_forecast = forecast_df['Forecast'].max()
-        # min_forecast = forecast_df['Forecast'].min()
-        # st.write(f"### Forecast Summary:")
-        # st.write(f"- **Total Forecasted Quantity**: {total_forecast:.2f} KG")
-        # st.write(f"- **Peak Month**: {forecast_df['Forecast'].idxmax().strftime('%B %Y')} with **{max_forecast:.2f} KG**")
-        # st.write(f"- **Lowest Month**: {forecast_df['Forecast'].idxmin().strftime('%B %Y')} with **{min_forecast:.2f} KG**")
-
-            # Add a summary table for monthly forecast with pagination
+        # Add a summary table for monthly forecast with pagination
         st.subheader("Monthly Egg Production Table")
 
         # Number of rows per page
@@ -177,18 +187,19 @@ if df is not None and products_df is not None:
         # Slice the table based on the selected page
         start_idx = (selected_page - 1) * rows_per_page
         end_idx = start_idx + rows_per_page
-        paginated_table = forecast_df[start_idx:end_idx].reset_index()
-        paginated_table.columns = ['Month', 'Forecasted Quantity (KG)']
-        paginated_table['Month'] = paginated_table['Month'].dt.strftime('%B %Y')
+        paginated_table = forecast_df.iloc[start_idx:end_idx].reset_index()  # Ensure proper slicing
+        paginated_table.rename(columns={'index': 'Month', 'Forecast': 'Forecasted Quantity (KG)'}, inplace=True)  # Proper renaming
+
+        # Convert 'Month' column to a readable format
+        paginated_table['Month'] = pd.to_datetime(paginated_table['Month']).dt.strftime('%B %Y')
 
         # Display the paginated table
         st.table(paginated_table)
 
-
         # Add download button for forecasted values
         forecast_csv = forecast_df.reset_index()
-        forecast_csv.columns = ['Month', 'Forecasted Quantity (KG)']
-        forecast_csv['Month'] = forecast_csv['Month'].dt.strftime('%B %Y')
+        forecast_csv.rename(columns={'index': 'Month', 'Forecast': 'Forecasted Quantity (KG)'}, inplace=True)
+        forecast_csv['Month'] = pd.to_datetime(forecast_csv['Month']).dt.strftime('%B %Y')
         forecast_csv_data = forecast_csv.to_csv(index=False)
         st.download_button(
             label="Download Forecasted Values as CSV",
@@ -196,6 +207,8 @@ if df is not None and products_df is not None:
             file_name='forecasted_values.csv',
             mime='text/csv',
         )
+
+
 
     except Exception as e:
         st.error(f"SARIMAX model failed: {e}")
